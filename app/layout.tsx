@@ -5,7 +5,7 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "CodeCollab",
+  title: "CodeCollab - VS Code Style",
   description: "Real-time collaborative code editor",
 };
 
@@ -16,7 +16,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={inter.className}>{children}</body>
+      {/* VS Code Dark Theme Background */}
+      <body className={`${inter.className} bg-[#1e1e1e] text-[#cccccc] overflow-hidden`}>
+        {children}
+      </body>
     </html>
   );
 }
