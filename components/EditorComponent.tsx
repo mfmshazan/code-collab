@@ -1,11 +1,37 @@
 "use client";
 import Editor from "@monaco-editor/react";
+import { useEffect, useState } from "react";
+import { io, Socket } from "socket.io-client";
+
+let socket: Socket;
 
 export default function EditorComponent() {
-  
-  // This function triggers whenever you type in the editor
+  const [code, setCode] = useState("// Start typing your code here...");
+
+  useEffect(() => {
+    // Connect to the SEPARATE port 4000
+    const newSocket = io("http://localhost:4000"); 
+    socket = newSocket;
+
+    newSocket.on("connect", () => {
+      console.log("✅ Connected to Port 4000");
+    });
+
+    newSocket.on("code-update", (incomingCode: string) => {
+      setCode(incomingCode);
+    });
+
+    return () => {
+      newSocket.disconnect();
+    };
+  }, []);
+
   function handleEditorChange(value: string | undefined) {
-    console.log("Current code:", value);
+    if (value !== undefined) {
+      setCode(value);
+      // 3. Send my changes to the server
+      socket.emit("code-change", value);
+    }
   }
 
   return (
@@ -13,10 +39,9 @@ export default function EditorComponent() {
       {/* Header Bar */}
       <div className="bg-[#1e1e1e] px-4 py-2 border-b border-gray-700 flex items-center justify-between">
          <span className="text-gray-300 text-sm font-mono">script.js</span>
-         <div className="flex gap-2">
-           <div className="w-3 h-3 rounded-full bg-red-500"></div>
-           <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
-           <div className="w-3 h-3 rounded-full bg-green-500"></div>
+         <div className="flex gap-2 items-center">
+           <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+           <span className="text-xs text-green-500">Live</span>
          </div>
       </div>
       
@@ -24,7 +49,7 @@ export default function EditorComponent() {
       <Editor
         height="100%"
         defaultLanguage="javascript"
-        defaultValue="// Start typing your code here..."
+        value={code} // IMPORTANT: Bind value to state
         theme="vs-dark"
         onChange={handleEditorChange}
         options={{
