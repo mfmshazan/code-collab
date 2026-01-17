@@ -5,12 +5,19 @@ import { io, Socket } from "socket.io-client";
 
 let socket: Socket;
 
-export default function EditorComponent() {
-  const [code, setCode] = useState("// Start typing your code here...");
+interface EditorProps {
+  roomId: string; // New Prop
+}
+
+export default function EditorComponent({ roomId }: EditorProps) {
+  const [code, setCode] = useState("// Start typing...");
 
   useEffect(() => {
-    const newSocket = io("http://localhost:4000"); 
+    const newSocket = io("http://localhost:4000");
     socket = newSocket;
+
+    // 1. Join the room immediately
+    newSocket.emit("join-room", roomId);
 
     newSocket.on("code-update", (incomingCode: string) => {
       setCode(incomingCode);
@@ -19,17 +26,17 @@ export default function EditorComponent() {
     return () => {
       newSocket.disconnect();
     };
-  }, []);
+  }, [roomId]); // Re-run if roomId changes
 
   function handleEditorChange(value: string | undefined) {
     if (value !== undefined) {
       setCode(value);
-      socket.emit("code-change", value);
+      // 2. Send both the CODE and the ROOM ID
+      socket.emit("code-change", { roomId, code: value });
     }
   }
 
   return (
-    // Just the editor, no extra wrappers
     <Editor
       height="100%"
       defaultLanguage="javascript"
@@ -37,13 +44,9 @@ export default function EditorComponent() {
       theme="vs-dark"
       onChange={handleEditorChange}
       options={{
-        minimap: { enabled: true }, // VS Code usually has minimap ON
+        minimap: { enabled: true },
         fontSize: 14,
-        lineNumbers: "on",
-        scrollBeyondLastLine: false,
         automaticLayout: true,
-        padding: { top: 10 },
-        fontFamily: "'Fira Code', 'Droid Sans Mono', 'monospace'",
       }}
     />
   );

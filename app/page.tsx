@@ -1,135 +1,94 @@
-import EditorComponent from "@/components/EditorComponent";
+"use client";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 export default function Home() {
+  const router = useRouter();
+  const [roomId, setRoomId] = useState("");
+
+  const createRoom = () => {
+    // Generate a random room ID (e.g., "room-842")
+    const newRoomId = Math.random().toString(36).substring(2, 9);
+    router.push(`/room/${newRoomId}`);
+  };
+
+  const joinRoom = () => {
+    if (roomId.trim()) {
+      router.push(`/room/${roomId}`);
+    }
+  };
+
+  const handleEnter = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      joinRoom();
+    }
+  };
+
   return (
-    <div className="flex h-screen w-full flex-col bg-[#1e1e1e] text-[#cccccc]">
-      
-      {/* --- TOP MENU BAR (File, Edit, etc.) --- */}
-      <header className="flex h-8 w-full items-center bg-[#3c3c3c] px-3 text-xs select-none">
-        <div className="mr-4 font-bold text-blue-400">CodeCollab</div>
-        <div className="flex gap-4">
-          <span className="cursor-pointer hover:text-white">File</span>
-          <span className="cursor-pointer hover:text-white">Edit</span>
-          <span className="cursor-pointer hover:text-white">Selection</span>
-          <span className="cursor-pointer hover:text-white">View</span>
-          <span className="cursor-pointer hover:text-white">Go</span>
-          <span className="cursor-pointer hover:text-white">Run</span>
-        </div>
-        <div className="ml-auto text-xs text-gray-400">Home.tsx - CodeCollab</div>
-      </header>
-
-      {/* --- MIDDLE SECTION (Sidebar + Editor) --- */}
-      <div className="flex flex-1 overflow-hidden">
-        
-        {/* 1. ACTIVITY BAR (Far Left Icons) */}
-        <aside className="flex w-12 flex-col items-center bg-[#333333] py-2">
-          {/* Files Icon (Active) */}
-          <div className="mb-4 cursor-pointer border-l-2 border-white px-2 opacity-100">
-            <svg className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-          </div>
-          {/* Search Icon */}
-          <div className="mb-4 cursor-pointer px-2 opacity-50 hover:opacity-100">
-            <svg className="h-6 w-6 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-          </div>
-          {/* Git Icon */}
-          <div className="mb-4 cursor-pointer px-2 opacity-50 hover:opacity-100">
-             <svg className="h-6 w-6 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-             </svg>
-          </div>
-        </aside>
-
-        {/* 2. SIDEBAR (File Explorer) */}
-        <aside className="flex w-60 flex-col bg-[#252526] text-sm">
-          <div className="flex items-center justify-between px-4 py-2 text-xs font-bold uppercase tracking-wider text-gray-400">
-            <span>Explorer</span>
-            <span>...</span>
-          </div>
-          
-          {/* Project Folder */}
-          <div className="mt-1">
-             <div className="flex cursor-pointer items-center bg-[#37373d] px-2 py-1 text-white">
-                <span className="mr-1">▼</span>
-                <span className="font-bold">CODE-COLLAB</span>
-             </div>
-             
-             {/* File List */}
-             <div className="flex flex-col">
-               <div className="flex cursor-pointer items-center px-4 py-1 hover:bg-[#2a2d2e] text-blue-300">
-                 <span className="mr-2 text-yellow-400">JS</span>
-                 <span>script.js</span>
-               </div>
-               <div className="flex cursor-pointer items-center px-4 py-1 hover:bg-[#2a2d2e] text-gray-400">
-                 <span className="mr-2 text-blue-400">TS</span>
-                 <span>server.ts</span>
-               </div>
-               <div className="flex cursor-pointer items-center px-4 py-1 hover:bg-[#2a2d2e] text-gray-400">
-                 <span className="mr-2 text-purple-400">JSON</span>
-                 <span>package.json</span>
-               </div>
-               <div className="flex cursor-pointer items-center px-4 py-1 hover:bg-[#2a2d2e] text-gray-400">
-                 <span className="mr-2 text-orange-400">#</span>
-                 <span>README.md</span>
-               </div>
-             </div>
-          </div>
-        </aside>
-
-        {/* 3. MAIN EDITOR AREA */}
-        <main className="flex flex-1 flex-col bg-[#1e1e1e]">
-          
-          {/* Tab Bar */}
-          <div className="flex h-9 bg-[#252526]">
-            <div className="flex items-center gap-2 border-t-2 border-blue-500 bg-[#1e1e1e] px-3 pr-4 text-sm text-white">
-              <span className="text-yellow-400 text-xs">JS</span>
-              <span>script.js</span>
-              <span className="ml-2 cursor-pointer text-gray-400 hover:text-white">×</span>
-            </div>
-            <div className="flex items-center gap-2 border-r border-[#1e1e1e] bg-[#2d2d2d] px-3 pr-4 text-sm text-gray-400 hover:bg-[#2a2d2e] cursor-pointer">
-              <span className="text-blue-400 text-xs">TS</span>
-              <span>server.ts</span>
-            </div>
-          </div>
-
-          {/* Breadcrumbs */}
-          <div className="flex items-center gap-2 bg-[#1e1e1e] px-4 py-1 text-xs text-gray-500">
-            <span>code-collab</span>
-            <span>&gt;</span>
-            <span>src</span>
-            <span>&gt;</span>
-            <span className="text-white">script.js</span>
-          </div>
-
-          {/* THE EDITOR COMPONENT */}
-          <div className="relative flex-1 overflow-hidden">
-             <EditorComponent />
-          </div>
-
-        </main>
+    <div className="flex h-screen w-full flex-col items-center justify-center bg-[#0d1117] text-white">
+      {/* Background decoration (optional glow) */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-[-10%] left-[-10%] h-[500px] w-[500px] rounded-full bg-blue-600/20 blur-[100px]" />
+        <div className="absolute bottom-[-10%] right-[-10%] h-[500px] w-[500px] rounded-full bg-purple-600/20 blur-[100px]" />
       </div>
 
-      {/* --- STATUS BAR (Bottom Blue Strip) --- */}
-      <footer className="flex h-6 w-full items-center justify-between bg-[#007acc] px-3 text-xs text-white">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1 cursor-pointer hover:bg-blue-600 px-1 rounded">
-             <span>🚫</span> <span>0</span>
-             <span>⚠️</span> <span>0</span>
-          </div>
-          <span className="cursor-pointer hover:bg-blue-600 px-1 rounded">📡 Live: Connected</span>
-        </div>
+      <div className="z-10 flex flex-col items-center gap-8 p-8">
         
-        <div className="flex items-center gap-4">
-          <span className="cursor-pointer hover:bg-blue-600 px-1 rounded">Ln 12, Col 4</span>
-          <span className="cursor-pointer hover:bg-blue-600 px-1 rounded">UTF-8</span>
-          <span className="cursor-pointer hover:bg-blue-600 px-1 rounded">JavaScript</span>
-          <span className="cursor-pointer hover:bg-blue-600 px-1 rounded">🔔</span>
+        {/* Title */}
+        <div className="text-center">
+          <h1 className="text-6xl font-bold tracking-tight bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent mb-4">
+            CodeCollab
+          </h1>
+          <p className="text-gray-400 text-lg">
+            Real-time collaborative coding for teams.
+          </p>
         </div>
-      </footer>
 
+        {/* Action Box */}
+        <div className="flex flex-col gap-4 w-80 bg-[#161b22] p-6 rounded-xl border border-[#30363d] shadow-2xl">
+          
+          {/* Create New Button */}
+          <button
+            onClick={createRoom}
+            className="w-full py-3 px-4 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-all flex items-center justify-center gap-2"
+          >
+            <span>+</span> Create New Room
+          </button>
+
+          <div className="flex items-center gap-2 my-2">
+            <div className="h-[1px] flex-1 bg-[#30363d]"></div>
+            <span className="text-xs text-gray-500 uppercase">OR</span>
+            <div className="h-[1px] flex-1 bg-[#30363d]"></div>
+          </div>
+
+          {/* Join Input Group */}
+          <div className="flex flex-col gap-2">
+            <label className="text-xs text-gray-400 font-mono">ENTER ROOM ID</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="e.g. project-alpha"
+                className="flex-1 bg-[#0d1117] border border-[#30363d] rounded-md px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-blue-500 transition-colors"
+                value={roomId}
+                onChange={(e) => setRoomId(e.target.value)}
+                onKeyDown={handleEnter}
+              />
+              <button
+                onClick={joinRoom}
+                disabled={!roomId}
+                className="bg-[#238636] hover:bg-[#2ea043] disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 rounded-md text-sm font-bold transition-colors"
+              >
+                Join
+              </button>
+            </div>
+          </div>
+
+        </div>
+
+        <p className="text-gray-600 text-xs mt-4">
+          Built with Next.js 16, Socket.io & Tailwind
+        </p>
+      </div>
     </div>
   );
 }
