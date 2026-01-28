@@ -6,32 +6,37 @@ import { io, Socket } from "socket.io-client";
 let socket: Socket;
 
 interface EditorProps {
-  roomId: string; // New Prop
+  roomId: string;
 }
 
 export default function EditorComponent({ roomId }: EditorProps) {
-  const [code, setCode] = useState("// Start typing...");
+  const [code, setCode] = useState<string>("// Start typing...");
 
   useEffect(() => {
     const newSocket = io("http://localhost:4000");
     socket = newSocket;
 
-    // 1. Join the room immediately
-    newSocket.emit("join-room", roomId);
-
-    newSocket.on("code-update", (incomingCode: string) => {
-      setCode(incomingCode);
+    // ✅ STEP 1: Setup the Listener FIRST (Open your ears)
+    newSocket.on("code-update", (incomingCode: any) => {
+      if (typeof incomingCode === "string") {
+        setCode(incomingCode);
+      } else if (incomingCode && typeof incomingCode.code === "string") {
+        setCode(incomingCode.code);
+      }
     });
+
+    // ✅ STEP 2: Join the room SECOND (Now you are ready to receive data)
+    newSocket.emit("join-room", roomId);
 
     return () => {
       newSocket.disconnect();
     };
-  }, [roomId]); // Re-run if roomId changes
+  }, [roomId]);
 
   function handleEditorChange(value: string | undefined) {
     if (value !== undefined) {
       setCode(value);
-      // 2. Send both the CODE and the ROOM ID
+      // Send both the Room ID and the Code text
       socket.emit("code-change", { roomId, code: value });
     }
   }
@@ -40,13 +45,14 @@ export default function EditorComponent({ roomId }: EditorProps) {
     <Editor
       height="100%"
       defaultLanguage="javascript"
-      value={code}
+      value={code} // This MUST be a string
       theme="vs-dark"
       onChange={handleEditorChange}
       options={{
         minimap: { enabled: true },
         fontSize: 14,
         automaticLayout: true,
+        wordWrap: "on",
       }}
     />
   );
