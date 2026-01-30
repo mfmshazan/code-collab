@@ -1,5 +1,6 @@
 import { Server } from "socket.io";
 import { PrismaClient } from "@prisma/client";
+import axios from "axios";
 
 const prisma = new PrismaClient();
 
@@ -68,6 +69,43 @@ io.on("connection", (socket) => {
       });
     } catch (err) {
       console.error("Error saving language:", err);
+    }
+  });
+  // 3. RUN CODE LISTENER
+  socket.on("run-code", async ({ roomId, language, code }) => {
+    console.log(`Running ${language} code for room ${roomId}...`);
+    
+    // Map our language names to Piston API versions
+    const pistonRuntimes: Record<string, { language: string; version: string }> = {
+      javascript: { language: "javascript", version: "18.15.0" },
+      python: { language: "python", version: "3.10.0" },
+      java: { language: "java", version: "15.0.2" },
+      cpp: { language: "c++", version: "10.2.0" },
+    };
+
+    const runtime = pistonRuntimes[language];
+
+    if (!runtime) {
+      socket.emit("code-output", "Error: Language not supported for execution.");
+      return;
+    }
+
+    try {
+      const response = await axios.post("https://emkc.org/api/v2/piston/execute", {
+        language: runtime.language,
+        version: runtime.version,
+        files: [{ content: code }],
+      });
+
+      const { run } = response.data;
+      const output = run.output || "No output"; // "run.output" contains the print statements
+      
+      // Send result back to EVERYONE in the room (so they see the result too)
+      io.to(roomId).emit("code-output", output);
+      
+    } catch (error) {
+      console.error("Execution failed:", error);
+      socket.emit("code-output", "Error: Failed to execute code.");
     }
   });
 

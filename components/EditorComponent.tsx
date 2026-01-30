@@ -45,13 +45,16 @@ export default function EditorComponent({ roomId, language = "javascript" }: Edi
   }, [roomId]);
 
   // ⚡ Handle User Typing
-  function handleEditorChange(value: string | undefined) {
+function handleEditorChange(value: string | undefined) {
     if (value !== undefined) {
       setCode(value);
-      // Emit the change to the server so others see it
       socketRef.current?.emit("code-change", { roomId, code: value });
+      
+      // ⚠️ IMPORTANT: If you want the "Run" button to see the code immediately, 
+      // you might need to lift the state up fully. 
+      // For now, the database load handles the initial sync.
     }
-  }
+}
 
   return (
     <div className="h-full w-full bg-[#1e1e1e]">
