@@ -16,6 +16,7 @@ datasource db {
 model Room {
   id        String   @id
   code      String   // Stores the code text
+  language  String   @default("javascript") // <--- ADD THIS
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

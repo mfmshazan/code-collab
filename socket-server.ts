@@ -1,7 +1,7 @@
 import { Server } from "socket.io";
-import { PrismaClient } from "@prisma/client"; // <--- Import Prisma
+import { PrismaClient } from "@prisma/client";
 
-const prisma = new PrismaClient(); // <--- Connect to Neon
+const prisma = new PrismaClient();
 
 const io = new Server(4000, {
   cors: {
@@ -18,15 +18,15 @@ io.on("connection", (socket) => {
     console.log(`User ${socket.id} joined room: ${roomId}`);
 
     // 1. LOAD FROM POSTGRES
-    // Try to find the room in the database
     const room = await prisma.room.findUnique({
       where: { id: roomId },
     });
 
-    // If room exists, send the saved code to the user
+    // If room exists, send BOTH code and language
     if (room) {
       socket.emit("code-update", room.code);
-      console.log(`Loaded saved code for room: ${roomId}`);
+      socket.emit("language-update", room.language); // <--- FIX 1: Send saved language
+      console.log(`Loaded room ${roomId} | Language: ${room.language}`);
     }
   });
 
@@ -34,20 +34,40 @@ io.on("connection", (socket) => {
     const { roomId, code } = data;
 
     if (roomId && code !== undefined) {
-      // Broadcast to others immediately
       socket.to(roomId).emit("code-update", code);
 
-      // 2. SAVE TO POSTGRES
-      // "upsert" means: Update if exists, Create if it doesn't.
       try {
         await prisma.room.upsert({
           where: { id: roomId },
           update: { code: code },
-          create: { id: roomId, code: code },
+          create: { id: roomId, code: code, language: "javascript" },
         });
       } catch (err) {
-        console.error("Error saving to DB:", err);
+        console.error("Error saving code:", err);
       }
+    }
+  });
+
+  // 2. HANDLE LANGUAGE CHANGE (Missing in your code)
+  socket.on("language-change", async (data) => {
+    const { roomId, language } = data;
+    
+    console.log(`Language changed in room ${roomId} to: ${language}`);
+
+    // Broadcast to other users in the room so their dropdown updates too
+    socket.to(roomId).emit("language-update", language);
+
+    // Save to Database
+    try {
+      await prisma.room.upsert({
+        where: { id: roomId },
+        // Update ONLY the language, leave the code alone
+        update: { language: language }, 
+        // If room doesn't exist, create it with empty code
+        create: { id: roomId, language: language, code: "" }, 
+      });
+    } catch (err) {
+      console.error("Error saving language:", err);
     }
   });
 
