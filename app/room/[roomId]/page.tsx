@@ -6,7 +6,7 @@ import { io, Socket } from "socket.io-client";
 import EditorComponent from "@/components/EditorComponent";
 import InviteButton from "@/components/InviteButton";
 import { 
-  Files, Search, GitGraph, Settings, ChevronDown, X, Menu, Bell, Play, Terminal 
+  Files, Search, GitGraph, Settings, ChevronDown, X, Play, Terminal 
 } from "lucide-react";
 
 export default function RoomPage() {
@@ -84,7 +84,7 @@ export default function RoomPage() {
         
         {/* TAB BAR & RUN BUTTON */}
         <div className="flex h-9 bg-[#252526] items-center justify-between pr-2">
-          <div className="flex items-center gap-2 px-3 h-full bg-[#1e1e1e] text-white border-t-2 border-blue-500 min-w-[120px]">
+          <div className="flex items-center gap-2 px-3 h-full bg-[#1e1e1e] text-white border-t-2 border-blue-500 min-w-30">
             <span className="text-sm">main.{getFileExtension(language)}</span>
             <X className="w-3 h-3 hover:text-white" />
           </div>
@@ -138,6 +138,7 @@ export default function RoomPage() {
                  onChange={(e) => handleLanguageChange(e.target.value)}
                  className="absolute bottom-6 right-0 w-32 bg-[#252526] p-1 shadow-xl opacity-0 group-hover:opacity-100"
                  size={5}
+                 aria-label="Select programming language"
                >
                  <option value="javascript">JavaScript</option>
                  <option value="python">Python</option>

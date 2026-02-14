@@ -109,6 +109,16 @@ io.on("connection", (socket) => {
     }
   });
 
+  // 4. CURSOR MOVEMENT
+  socket.on("cursor-move", ({ roomId, cursor }) => {
+    // Broadcast the cursor position to everyone else
+    // We send 'socket.id' so we know WHO is moving
+    socket.to(roomId).emit("cursor-update", { 
+      userId: socket.id, 
+      cursor 
+    });
+  });
+
   socket.on("disconnect", () => {
     console.log("User disconnected:", socket.id);
   });

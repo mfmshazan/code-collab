@@ -28,15 +28,15 @@ export default function Home() {
     <div className="flex h-screen w-full flex-col items-center justify-center bg-[#0d1117] text-white">
       {/* Background decoration (optional glow) */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-[-10%] left-[-10%] h-[500px] w-[500px] rounded-full bg-blue-600/20 blur-[100px]" />
-        <div className="absolute bottom-[-10%] right-[-10%] h-[500px] w-[500px] rounded-full bg-purple-600/20 blur-[100px]" />
+        <div className="absolute top-[-10%] left-[-10%] h-125 w-125 rounded-full bg-blue-600/20 blur-[100px]" />
+        <div className="absolute bottom-[-10%] right-[-10%] h-125 w-125rounded-full bg-purple-600/20 blur-[100px]" />
       </div>
 
       <div className="z-10 flex flex-col items-center gap-8 p-8">
         
         {/* Title */}
         <div className="text-center">
-          <h1 className="text-6xl font-bold tracking-tight bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent mb-4">
+          <h1 className="text-6xl font-bold tracking-tight bg-linear-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent mb-4">
             CodeCollab
           </h1>
           <p className="text-gray-400 text-lg">
@@ -56,9 +56,9 @@ export default function Home() {
           </button>
 
           <div className="flex items-center gap-2 my-2">
-            <div className="h-[1px] flex-1 bg-[#30363d]"></div>
+            <div className="h-px flex-1 bg-[#30363d]"></div>
             <span className="text-xs text-gray-500 uppercase">OR</span>
-            <div className="h-[1px] flex-1 bg-[#30363d]"></div>
+            <div className="h-px flex-1 bg-[#30363d]"></div>
           </div>
 
           {/* Join Input Group */}

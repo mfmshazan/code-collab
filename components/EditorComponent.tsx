@@ -1,78 +1,120 @@
 "use client";
-import Editor from "@monaco-editor/react";
+import Editor, { OnMount } from "@monaco-editor/react";
 import { useEffect, useState, useRef } from "react";
 import { io, Socket } from "socket.io-client";
+import type { editor } from "monaco-editor";
 
-// Define the shape of props the component accepts
-interface EditorProps {
-  roomId: string;
-  language?: string; // Optional: Defaults to "javascript" if not provided
+declare global {
+  interface Window {
+    monaco: typeof import("monaco-editor");
+  }
 }
 
+interface EditorProps {
+  roomId: string;
+  language?: string;
+}
+
+// Store for other users' cursors (User ID -> Decoration ID)
+type CursorMap = Record<string, string[]>;
+
 export default function EditorComponent({ roomId, language = "javascript" }: EditorProps) {
-  const [code, setCode] = useState<string>("// Loading code from room...");
-  
-  // Use a ref to store the socket so it doesn't re-connect on every render
+  const [code, setCode] = useState<string>("// Loading...");
   const socketRef = useRef<Socket | null>(null);
+  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null); // To store the Monaco instance
+  const decorationsRef = useRef<CursorMap>({}); // To track active cursors
 
   useEffect(() => {
-    // 1. Connect to the Backend
     const newSocket = io("http://localhost:4000");
     socketRef.current = newSocket;
 
-    // 2. SETUP LISTENER (Open ears before speaking)
-    // We listen for updates *before* we join, so we don't miss the initial load.
-    newSocket.on("code-update", (incomingCode: any) => {
-      // 🛡️ CRASH PROTECTION: Handle both String and Object formats
-      if (typeof incomingCode === "string") {
-        setCode(incomingCode);
-      } else if (incomingCode && typeof incomingCode.code === "string") {
-        setCode(incomingCode.code);
-      } else {
-        console.error("Received unexpected data format:", incomingCode);
-      }
+    // 1. Listen for Code Updates
+    newSocket.on("code-update", (incoming) => {
+      const newCode = typeof incoming === "string" ? incoming : incoming.code;
+      setCode(newCode);
     });
 
-    // 3. JOIN THE ROOM (Speak)
-    // Now that we are listening, tell the server we are here.
+    // 2. Listen for Cursor Updates (NEW)
+    newSocket.on("cursor-update", ({ userId, cursor }) => {
+      if (!editorRef.current) return;
+
+      const editor = editorRef.current;
+      
+      // Define the new decoration (a colored vertical line)
+      const newCursorDecoration = {
+        range: new window.monaco.Range(
+          cursor.lineNumber, 
+          cursor.column, 
+          cursor.lineNumber, 
+          cursor.column
+        ),
+        options: {
+          className: "remote-cursor", // We will define this CSS next
+          hoverMessage: { value: `User ${userId.substr(0, 4)}` } // Tooltip
+        }
+      };
+
+      // Update the editor decorations
+      // We look up the old decoration ID for this user to replace it
+      const oldDecorations = decorationsRef.current[userId] || [];
+      const newDecorationsIds = editor.deltaDecorations(oldDecorations, [newCursorDecoration]);
+      
+      // Save the new ID so we can clear it next time they move
+      decorationsRef.current[userId] = newDecorationsIds;
+    });
+
     newSocket.emit("join-room", roomId);
 
-    // 4. CLEANUP
-    // Disconnect when the user leaves the page to prevent memory leaks.
-    return () => {
-      newSocket.disconnect();
-    };
+    return () => { newSocket.disconnect(); };
   }, [roomId]);
 
-  // ⚡ Handle User Typing
-function handleEditorChange(value: string | undefined) {
+  // 3. Handle Local Updates (Typing & Moving)
+  function handleEditorChange(value: string | undefined) {
     if (value !== undefined) {
       setCode(value);
       socketRef.current?.emit("code-change", { roomId, code: value });
-      
-      // ⚠️ IMPORTANT: If you want the "Run" button to see the code immediately, 
-      // you might need to lift the state up fully. 
-      // For now, the database load handles the initial sync.
     }
-}
+  }
+
+  // 4. Capture Editor Instance on Mount
+  const handleEditorDidMount: OnMount = (editor) => {
+    editorRef.current = editor;
+
+    // Listen to YOUR cursor movement
+    editor.onDidChangeCursorPosition((e) => {
+      const position = e.position;
+      socketRef.current?.emit("cursor-move", { 
+        roomId, 
+        cursor: { lineNumber: position.lineNumber, column: position.column } 
+      });
+    });
+  };
 
   return (
     <div className="h-full w-full bg-[#1e1e1e]">
       <Editor
         height="100%"
-        defaultLanguage="javascript"
-        language={language} // Updates dynamically if you pass a new language prop
+        language={language}
         value={code}
         theme="vs-dark"
         onChange={handleEditorChange}
+        onMount={handleEditorDidMount} // <--- Hook up the mounter
         options={{
           minimap: { enabled: true },
           fontSize: 14,
           wordWrap: "on",
           automaticLayout: true,
-          scrollBeyondLastLine: false,
         }}
       />
+      {/* 5. Simple CSS for the cursor line */}
+      <style jsx global>{`
+        .remote-cursor {
+          background-color: #ff0000; /* Red cursor */
+          width: 2px !important;
+          height: 20px !important;
+          border-left: 2px solid #ff4d4d;
+        }
+      `}</style>
     </div>
   );
 }
