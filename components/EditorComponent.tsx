@@ -25,7 +25,7 @@ export default function EditorComponent({ roomId, language = "javascript" }: Edi
   const decorationsRef = useRef<CursorMap>({}); // To track active cursors
 
   useEffect(() => {
-    const newSocket = io("http://localhost:4000");
+    const newSocket = io(process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:4000");
     socketRef.current = newSocket;
 
     // 1. Listen for Code Updates

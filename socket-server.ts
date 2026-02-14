@@ -71,24 +71,22 @@ io.on("connection", (socket) => {
       console.error("Error saving language:", err);
     }
   });
-  // 3. RUN CODE LISTENER
+  
+  // 3. RUN CODE LISTENER (Future-Proof Version)
   socket.on("run-code", async ({ roomId, language, code }) => {
     console.log(`Running ${language} code for room ${roomId}...`);
-    
-    // Map our language names to Piston API versions
+
+    // 1. Define ALL supported runtimes now (so you don't have to edit this later)
     const pistonRuntimes: Record<string, { language: string; version: string }> = {
       javascript: { language: "javascript", version: "18.15.0" },
-      python: { language: "python", version: "3.10.0" },
-      java: { language: "java", version: "15.0.2" },
-      cpp: { language: "c++", version: "10.2.0" },
+      python:     { language: "python",     version: "3.10.0" },
+      java:       { language: "java",       version: "15.0.2" },
+      cpp:        { language: "c++",        version: "10.2.0" },
     };
 
-    const runtime = pistonRuntimes[language];
-
-    if (!runtime) {
-      socket.emit("code-output", "Error: Language not supported for execution.");
-      return;
-    }
+    // 2. Look up the language (or default to JS if the data is weird)
+    // This makes it crash-proof if a user somehow sends "ruby"
+    const runtime = pistonRuntimes[language] || pistonRuntimes["javascript"];
 
     try {
       const response = await axios.post("https://emkc.org/api/v2/piston/execute", {
@@ -98,14 +96,17 @@ io.on("connection", (socket) => {
       });
 
       const { run } = response.data;
-      const output = run.output || "No output"; // "run.output" contains the print statements
       
-      // Send result back to EVERYONE in the room (so they see the result too)
+      // 3. Handle Errors (Standard Error) vs Output
+      // Piston puts syntax errors (like missing semicolons) in 'stderr'
+      const output = run.stderr ? `Error:\n${run.stderr}` : (run.output || "No output");
+      
+      // Send result back to room
       io.to(roomId).emit("code-output", output);
       
     } catch (error) {
       console.error("Execution failed:", error);
-      socket.emit("code-output", "Error: Failed to execute code.");
+      socket.emit("code-output", "Error: Failed to execute code via Piston API.");
     }
   });
 
