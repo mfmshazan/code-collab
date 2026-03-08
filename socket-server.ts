@@ -1,6 +1,10 @@
+import { config } from "dotenv";
 import { Server } from "socket.io";
 import { PrismaClient } from "@prisma/client";
 import axios from "axios";
+
+// Load environment variables
+config();
 
 const prisma = new PrismaClient();
 
@@ -12,22 +16,35 @@ const io = new Server(4000, {
 });
 
 io.on("connection", (socket) => {
-  console.log("User connected:", socket.id);
+  console.log("✅ User connected:", socket.id);
+
+  // Log all incoming events for debugging
+  socket.onAny((eventName, ...args) => {
+    console.log(`📨 [${socket.id}] Event: "${eventName}"`, 
+      args.length > 0 ? `| Data: ${JSON.stringify(args).substring(0, 100)}...` : "");
+  });
 
   socket.on("join-room", async (roomId) => {
     socket.join(roomId);
-    console.log(`User ${socket.id} joined room: ${roomId}`);
+    console.log(`🚪 User ${socket.id} joined room: ${roomId}`);
 
-    // 1. LOAD FROM POSTGRES
-    const room = await prisma.room.findUnique({
-      where: { id: roomId },
-    });
+    // 1. LOAD FROM POSTGRES (with error handling)
+    try {
+      const room = await prisma.room.findUnique({
+        where: { id: roomId },
+      });
 
-    // If room exists, send BOTH code and language
-    if (room) {
-      socket.emit("code-update", room.code);
-      socket.emit("language-update", room.language); // <--- FIX 1: Send saved language
-      console.log(`Loaded room ${roomId} | Language: ${room.language}`);
+      // If room exists, send BOTH code and language
+      if (room) {
+        socket.emit("code-update", room.code);
+        socket.emit("language-update", room.language);
+        console.log(`✅ Loaded room ${roomId} | Language: ${room.language}`);
+      }
+    } catch (err) {
+      console.error("⚠️ Database unavailable, continuing without saved data:", (err as Error).message);
+      // Send default values so app still works
+      socket.emit("code-update", "// Database offline - code not loaded\nconsole.log('Hello World');");
+      socket.emit("language-update", "javascript");
     }
   });
 
@@ -72,41 +89,64 @@ io.on("connection", (socket) => {
     }
   });
   
-  // 3. RUN CODE LISTENER (Future-Proof Version)
+  // 3. RUN CODE LISTENER (Using JDoodle API)
   socket.on("run-code", async ({ roomId, language, code }) => {
     console.log(`Running ${language} code for room ${roomId}...`);
 
-    // 1. Define ALL supported runtimes now (so you don't have to edit this later)
-    const pistonRuntimes: Record<string, { language: string; version: string }> = {
-      javascript: { language: "javascript", version: "18.15.0" },
-      python:     { language: "python",     version: "3.10.0" },
-      java:       { language: "java",       version: "15.0.2" },
-      cpp:        { language: "c++",        version: "10.2.0" },
+    // JDoodle language configurations
+    // Docs: https://docs.jdoodle.com/integrating-compiler-ide-to-your-application/languages-and-versions-supported-in-api-and-plugins
+    const jdoodleLanguages: Record<string, { language: string; versionIndex: string }> = {
+      javascript: { language: "nodejs", versionIndex: "4" },    // Node.js 17.1.0
+      python:     { language: "python3", versionIndex: "4" },   // Python 3.10.0
+      java:       { language: "java", versionIndex: "4" },      // JDK 17.0.1
+      cpp:        { language: "cpp17", versionIndex: "1" },     // GCC 11.1.0
     };
 
-    // 2. Look up the language (or default to JS if the data is weird)
-    // This makes it crash-proof if a user somehow sends "ruby"
-    const runtime = pistonRuntimes[language] || pistonRuntimes["javascript"];
+    const runtime = jdoodleLanguages[language] || jdoodleLanguages["javascript"];
+
+    // Get JDoodle credentials from environment variables
+    const JDOODLE_CLIENT_ID = process.env.JDOODLE_CLIENT_ID || "";
+    const JDOODLE_CLIENT_SECRET = process.env.JDOODLE_CLIENT_SECRET || "";
+    
+    if (!JDOODLE_CLIENT_ID || !JDOODLE_CLIENT_SECRET) {
+      console.error("JDoodle credentials not found in environment variables");
+      socket.emit("code-output", "Error: JDoodle API credentials not configured. Please set JDOODLE_CLIENT_ID and JDOODLE_CLIENT_SECRET in .env file.");
+      return;
+    }
 
     try {
-      const response = await axios.post("https://emkc.org/api/v2/piston/execute", {
+      const response = await axios.post("https://api.jdoodle.com/v1/execute", {
+        script: code,
         language: runtime.language,
-        version: runtime.version,
-        files: [{ content: code }],
+        versionIndex: runtime.versionIndex,
+        clientId: JDOODLE_CLIENT_ID,
+        clientSecret: JDOODLE_CLIENT_SECRET,
       });
 
-      const { run } = response.data;
+      const result = response.data;
       
-      // 3. Handle Errors (Standard Error) vs Output
-      // Piston puts syntax errors (like missing semicolons) in 'stderr'
-      const output = run.stderr ? `Error:\n${run.stderr}` : (run.output || "No output");
-      
-      // Send result back to room
+      // Handle output
+      let output = "";
+      if (result.error) {
+        output = `Error:\n${result.error}`;
+      } else if (result.output) {
+        output = result.output;
+      } else {
+        output = "No output";
+      }
+
+      // Send result back to entire room
       io.to(roomId).emit("code-output", output);
       
     } catch (error) {
       console.error("Execution failed:", error);
-      socket.emit("code-output", "Error: Failed to execute code via Piston API.");
+      if (axios.isAxiosError(error) && error.response?.status === 429) {
+        socket.emit("code-output", "Error: Rate limit exceeded. Please try again later.");
+      } else if (axios.isAxiosError(error) && error.response?.data?.error) {
+        socket.emit("code-output", `Error: ${error.response.data.error}`);
+      } else {
+        socket.emit("code-output", "Error: Failed to execute code. Check server logs.");
+      }
     }
   });
 
@@ -121,8 +161,9 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
-    console.log("User disconnected:", socket.id);
+    console.log("❌ User disconnected:", socket.id);
   });
 });
 
-console.log("> Socket Server ready on port 4000");
+console.log("\n🚀 Socket Server ready on port 4000");
+console.log("📡 Listening for events: join-room, code-change, language-change, run-code, cursor-move\n");
