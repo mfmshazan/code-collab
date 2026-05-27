@@ -8,7 +8,9 @@ config();
 
 const prisma = new PrismaClient();
 
-const io = new Server(4000, {
+const PORT = Number(process.env.PORT) || 4000;
+
+const io = new Server(PORT, {
   cors: {
     origin: "*",
     methods: ["GET", "POST"],
