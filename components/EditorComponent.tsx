@@ -13,67 +13,92 @@ declare global {
 interface EditorProps {
   roomId: string;
   language?: string;
+  initialCode?: string;
+  onCodeChange?: (code: string) => void;
 }
 
 // Store for other users' cursors (User ID -> Decoration ID)
 type CursorMap = Record<string, string[]>;
 
-export default function EditorComponent({ roomId, language = "javascript" }: EditorProps) {
-  const [code, setCode] = useState<string>("// Loading...");
+export default function EditorComponent({
+  roomId,
+  language = "javascript",
+  initialCode,
+  onCodeChange,
+}: EditorProps) {
+  const [code, setCode] = useState<string>(
+    initialCode ?? "// Loading..."
+  );
   const socketRef = useRef<Socket | null>(null);
-  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null); // To store the Monaco instance
-  const decorationsRef = useRef<CursorMap>({}); // To track active cursors
+  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const decorationsRef = useRef<CursorMap>({});
+  // Track whether we've received the first server snapshot
+  const hasReceivedSnapshot = useRef(false);
+
+  // When initialCode prop changes (challenge or language template loaded),
+  // update editor display AND notify parent so currentCode stays in sync.
+  useEffect(() => {
+    if (initialCode !== undefined) {
+      setCode(initialCode);
+      onCodeChange?.(initialCode); // <-- keep parent currentCode in sync
+      hasReceivedSnapshot.current = false;
+    }
+  }, [initialCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    const newSocket = io(process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:4000",
-      {transports: ["websocket"]}
+    const newSocket = io(
+      process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:4000",
+      { transports: ["websocket"] }
     );
     socketRef.current = newSocket;
 
-    // 1. Listen for Code Updates
+    // 1. Listen for Code Updates from other users
     newSocket.on("code-update", (incoming) => {
-      const newCode = typeof incoming === "string" ? incoming : incoming.code;
+      const newCode =
+        typeof incoming === "string" ? incoming : incoming.code;
+      hasReceivedSnapshot.current = true;
       setCode(newCode);
+      onCodeChange?.(newCode);
     });
 
-    // 2. Listen for Cursor Updates (NEW)
+    // 2. Listen for Cursor Updates
     newSocket.on("cursor-update", ({ userId, cursor }) => {
       if (!editorRef.current) return;
 
       const editor = editorRef.current;
-      
-      // Define the new decoration (a colored vertical line)
+
       const newCursorDecoration = {
         range: new window.monaco.Range(
-          cursor.lineNumber, 
-          cursor.column, 
-          cursor.lineNumber, 
+          cursor.lineNumber,
+          cursor.column,
+          cursor.lineNumber,
           cursor.column
         ),
         options: {
-          className: "remote-cursor", // We will define this CSS next
-          hoverMessage: { value: `User ${userId.substr(0, 4)}` } // Tooltip
-        }
+          className: "remote-cursor",
+          hoverMessage: { value: `User ${userId.substr(0, 4)}` },
+        },
       };
 
-      // Update the editor decorations
-      // We look up the old decoration ID for this user to replace it
       const oldDecorations = decorationsRef.current[userId] || [];
-      const newDecorationsIds = editor.deltaDecorations(oldDecorations, [newCursorDecoration]);
-      
-      // Save the new ID so we can clear it next time they move
+      const newDecorationsIds = editor.deltaDecorations(oldDecorations, [
+        newCursorDecoration,
+      ]);
       decorationsRef.current[userId] = newDecorationsIds;
     });
 
     newSocket.emit("join-room", roomId);
 
-    return () => { newSocket.disconnect(); };
-  }, [roomId]);
+    return () => {
+      newSocket.disconnect();
+    };
+  }, [roomId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 3. Handle Local Updates (Typing & Moving)
+  // 3. Handle Local Typing
   function handleEditorChange(value: string | undefined) {
     if (value !== undefined) {
       setCode(value);
+      onCodeChange?.(value);
       socketRef.current?.emit("code-change", { roomId, code: value });
     }
   }
@@ -82,12 +107,11 @@ export default function EditorComponent({ roomId, language = "javascript" }: Edi
   const handleEditorDidMount: OnMount = (editor) => {
     editorRef.current = editor;
 
-    // Listen to YOUR cursor movement
     editor.onDidChangeCursorPosition((e) => {
       const position = e.position;
-      socketRef.current?.emit("cursor-move", { 
-        roomId, 
-        cursor: { lineNumber: position.lineNumber, column: position.column } 
+      socketRef.current?.emit("cursor-move", {
+        roomId,
+        cursor: { lineNumber: position.lineNumber, column: position.column },
       });
     });
   };
@@ -100,18 +124,22 @@ export default function EditorComponent({ roomId, language = "javascript" }: Edi
         value={code}
         theme="vs-dark"
         onChange={handleEditorChange}
-        onMount={handleEditorDidMount} // <--- Hook up the mounter
+        onMount={handleEditorDidMount}
         options={{
           minimap: { enabled: true },
           fontSize: 14,
           wordWrap: "on",
           automaticLayout: true,
+          scrollBeyondLastLine: false,
+          smoothScrolling: true,
+          cursorBlinking: "smooth",
+          renderLineHighlight: "gutter",
         }}
       />
-      {/* 5. Simple CSS for the cursor line */}
+      {/* CSS for remote cursor line */}
       <style jsx global>{`
         .remote-cursor {
-          background-color: #ff0000; /* Red cursor */
+          background-color: #ff6b6b;
           width: 2px !important;
           height: 20px !important;
           border-left: 2px solid #ff4d4d;
