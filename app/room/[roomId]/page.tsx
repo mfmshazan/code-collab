@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
-import { useParams } from "next/navigation";
+import { useEffect, useState, useRef, Suspense } from "react";
+import { useParams, useSearchParams } from "next/navigation";
 import { io, Socket } from "socket.io-client";
 import EditorComponent from "@/components/EditorComponent";
 import InviteButton from "@/components/InviteButton";
@@ -34,17 +34,25 @@ const LANG_META: Record<string, { label: string; ext: string; badge: string; col
   cpp:        { label: "C++",        ext: "cpp",  badge: "⚙ C++",  color: "text-purple-300" },
 };
 
-export default function RoomPage() {
+function RoomContent() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const roomId = params.roomId as string;
 
-  const [language, setLanguage] = useState("javascript");
+  // Extract requested language from URL query param (?lang=cpp, etc.)
+  const requestedLang = searchParams?.get("lang") || "javascript";
+  const initialLang = ["javascript", "java", "python", "cpp"].includes(requestedLang)
+    ? requestedLang
+    : "javascript";
+
+  const [language, setLanguage] = useState(initialLang);
   const [output, setOutput] = useState("Ready to run...");
   const [isRunning, setIsRunning] = useState(false);
-  const [currentCode, setCurrentCode] = useState(defaultTemplates["javascript"]);
+  const [currentCode, setCurrentCode] = useState(() => defaultTemplates[initialLang] ?? defaultTemplates["javascript"]);
   const [challengeCode, setChallengeCode] = useState<string | undefined>(undefined);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("explorer");
   const [outputError, setOutputError] = useState(false);
+  const [permissionToast, setPermissionToast] = useState<string | null>(null);
 
   // Participant and Permission states
   const [socket, setSocket] = useState<Socket | null>(null);
@@ -96,6 +104,7 @@ export default function RoomPage() {
       roomId,
       username: storedName,
       hostToken: hostToken || undefined,
+      language: initialLang,
     });
 
     // 3. Room initialization & participant events
@@ -155,6 +164,13 @@ export default function RoomPage() {
 
     newSocket.on("permission-updated", ({ canEdit }: { canEdit: boolean }) => {
       setCanEdit(canEdit);
+      if (canEdit) {
+        setPermissionToast("🎉 Admin granted you permission to write code!");
+        setTimeout(() => setPermissionToast(null), 5000);
+      } else {
+        setPermissionToast("🔒 Your edit access was revoked by admin.");
+        setTimeout(() => setPermissionToast(null), 4000);
+      }
     });
 
     newSocket.on("room-mode-updated", (mode: "host-only" | "collaborative") => {
@@ -174,7 +190,7 @@ export default function RoomPage() {
     return () => {
       newSocket.disconnect();
     };
-  }, [roomId]);
+  }, [roomId, initialLang]);
 
   const runCode = () => {
     setIsRunning(true);
@@ -222,6 +238,13 @@ export default function RoomPage() {
 
   const handleSetRoomMode = (mode: "host-only" | "collaborative") => {
     socketRef.current?.emit("set-room-mode", { roomId, mode });
+  };
+
+  const handleSetAllPermissions = (targetCanEdit: boolean) => {
+    socketRef.current?.emit("set-all-edit-permissions", {
+      roomId,
+      canEdit: targetCanEdit,
+    });
   };
 
   const handleClaimHost = () => {
@@ -322,6 +345,7 @@ export default function RoomPage() {
         {sidebarTab === "participants" && (
           <div className="flex flex-col flex-1 min-h-0">
             <ParticipantsPanel
+              roomId={roomId}
               participants={participants}
               currentSocketId={socket?.id || null}
               isHost={isHost}
@@ -331,6 +355,7 @@ export default function RoomPage() {
               onUpdateName={handleUpdateName}
               onRequestEditAccess={handleRequestEditAccess}
               onSetEditPermission={handleSetEditPermission}
+              onSetAllPermissions={handleSetAllPermissions}
               onSetRoomMode={handleSetRoomMode}
               onClaimHost={handleClaimHost}
             />
@@ -391,6 +416,9 @@ export default function RoomPage() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Invite Button (Header Quick Copy) */}
+            <InviteButton roomId={roomId} variant="header" />
+
             {/* Language quick-switch pills */}
             <div className="flex gap-1">
               {Object.entries(LANG_META).map(([lang, m]) => (
@@ -428,11 +456,16 @@ export default function RoomPage() {
 
         {/* EDITOR */}
         <div className="flex-1 relative min-h-0">
+          {permissionToast && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 bg-[#161b22]/95 border border-green-500/50 text-green-300 text-xs px-4 py-2 rounded-full shadow-2xl backdrop-blur-md flex items-center gap-2 pointer-events-none">
+              <span>{permissionToast}</span>
+            </div>
+          )}
           <EditorComponent
             socket={socket}
             roomId={roomId}
             language={language}
-            initialCode={challengeCode}
+            initialCode={challengeCode ?? currentCode}
             onCodeChange={setCurrentCode}
             canEdit={canEdit}
             onRequestEditAccess={handleRequestEditAccess}
@@ -501,5 +534,22 @@ export default function RoomPage() {
         </footer>
       </main>
     </div>
+  );
+}
+
+export default function RoomPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-screen w-full items-center justify-center bg-[#1e1e1e] text-[#cccccc] font-mono">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            <span className="text-sm text-gray-400">Loading CodeCollab room...</span>
+          </div>
+        </div>
+      }
+    >
+      <RoomContent />
+    </Suspense>
   );
 }

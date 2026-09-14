@@ -14,6 +14,8 @@ import {
   UserCheck,
 } from "lucide-react";
 
+import InviteButton from "./InviteButton";
+
 export interface Participant {
   socketId: string;
   userId: string;
@@ -25,6 +27,7 @@ export interface Participant {
 }
 
 interface ParticipantsPanelProps {
+  roomId: string;
   participants: Participant[];
   currentSocketId: string | null;
   isHost: boolean;
@@ -34,11 +37,13 @@ interface ParticipantsPanelProps {
   onUpdateName: (newName: string) => void;
   onRequestEditAccess: () => void;
   onSetEditPermission: (targetSocketId: string, canEdit: boolean) => void;
+  onSetAllPermissions?: (canEdit: boolean) => void;
   onSetRoomMode: (mode: "host-only" | "collaborative") => void;
   onClaimHost?: () => void;
 }
 
 export default function ParticipantsPanel({
+  roomId,
   participants,
   currentSocketId,
   isHost,
@@ -48,6 +53,7 @@ export default function ParticipantsPanel({
   onUpdateName,
   onRequestEditAccess,
   onSetEditPermission,
+  onSetAllPermissions,
   onSetRoomMode,
   onClaimHost,
 }: ParticipantsPanelProps) {
@@ -106,6 +112,10 @@ export default function ParticipantsPanel({
             )}
           </div>
         )}
+
+        {/* ── SHARE INVITE LINK CARD ── */}
+        <InviteButton roomId={roomId} variant="card" />
+
         {/* ── CURRENT USER PROFILE / RENAME CARD ── */}
         <div className="p-3 bg-[#1e1e1e] border border-[#3e3e42] rounded-lg shadow-sm">
           <div className="text-[10px] uppercase font-bold text-gray-500 mb-2 flex items-center justify-between">
@@ -250,7 +260,7 @@ export default function ParticipantsPanel({
 
             <p className="text-[10px] text-gray-500 leading-tight">
               {roomMode === "host-only"
-                ? "Students are view-only until you grant edit access."
+                ? "You can grant edit access to individual students below anytime without them having to ask."
                 : "All participants can edit simultaneously."}
             </p>
           </div>
@@ -276,9 +286,9 @@ export default function ParticipantsPanel({
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => onSetEditPermission(student.socketId, true)}
-                      className="px-2 py-0.5 bg-green-600 hover:bg-green-500 text-white rounded text-[10px] font-bold transition-colors"
+                      className="px-2 py-0.5 bg-green-600 hover:bg-green-500 text-white rounded text-[10px] font-bold transition-colors flex items-center gap-1"
                     >
-                      Allow
+                      <Check className="w-3 h-3" /> Allow
                     </button>
                     <button
                       onClick={() => onSetEditPermission(student.socketId, false)}
@@ -295,8 +305,30 @@ export default function ParticipantsPanel({
 
         {/* ── ALL PARTICIPANTS LIST ── */}
         <div className="space-y-2">
-          <div className="text-[10px] uppercase font-bold text-gray-500 px-1">
-            Online Users ({participants.length})
+          <div className="flex items-center justify-between px-1">
+            <div className="text-[10px] uppercase font-bold text-gray-500">
+              Online Users ({participants.length})
+            </div>
+            {isHost && participants.some((p) => !p.isHost) && (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => onSetAllPermissions?.(true)}
+                  title="Allow all students to write code without asking"
+                  className="px-2 py-0.5 bg-green-600/20 hover:bg-green-600/30 text-green-300 border border-green-500/30 rounded text-[10px] font-bold transition-all flex items-center gap-1 shadow-sm"
+                >
+                  <Unlock className="w-3 h-3" />
+                  <span>Grant All</span>
+                </button>
+                <button
+                  onClick={() => onSetAllPermissions?.(false)}
+                  title="Lock all students to View-Only"
+                  className="px-2 py-0.5 bg-[#333] hover:bg-[#444] text-gray-400 border border-gray-600 rounded text-[10px] font-semibold transition-all flex items-center gap-1"
+                >
+                  <Lock className="w-3 h-3" />
+                  <span>Lock All</span>
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="space-y-1">
@@ -337,38 +369,44 @@ export default function ParticipantsPanel({
                   </div>
 
                   {/* Right: Permission Status & Host Action */}
-                  <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+                  <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
                     {p.isHost ? (
                       <span className="text-[10px] text-yellow-400 font-semibold">Host</span>
                     ) : (
                       <>
-                        {p.canEdit ? (
-                          <span className="text-[10px] text-green-400 font-medium">Editor</span>
-                        ) : p.requestingEdit ? (
-                          <span className="text-[10px] text-yellow-400 font-medium animate-pulse">
-                            Asking...
-                          </span>
-                        ) : (
-                          <span className="text-[10px] text-gray-500">Viewer</span>
-                        )}
-
-                        {/* Host controls toggle for this user */}
-                        {isHost && (
+                        {isHost ? (
                           <button
                             onClick={() => onSetEditPermission(p.socketId, !p.canEdit)}
-                            title={p.canEdit ? "Revoke edit permission" : "Grant edit permission"}
-                            className={`p-1 rounded ml-1 transition-colors ${
+                            className={`px-2 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 transition-all ${
                               p.canEdit
-                                ? "text-red-400 hover:bg-red-950/50"
-                                : "text-green-400 hover:bg-green-950/50"
+                                ? "bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30"
+                                : "bg-green-600 hover:bg-green-500 text-white shadow-sm"
                             }`}
                           >
                             {p.canEdit ? (
-                              <Lock className="w-3.5 h-3.5" />
+                              <>
+                                <Lock className="w-3 h-3" />
+                                <span>Revoke</span>
+                              </>
                             ) : (
-                              <Unlock className="w-3.5 h-3.5" />
+                              <>
+                                <UserCheck className="w-3 h-3" />
+                                <span>Give Edit Access</span>
+                              </>
                             )}
                           </button>
+                        ) : (
+                          <>
+                            {p.canEdit ? (
+                              <span className="text-[10px] text-green-400 font-medium">Editor</span>
+                            ) : p.requestingEdit ? (
+                              <span className="text-[10px] text-yellow-400 font-medium animate-pulse">
+                                Asking...
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-gray-500">Viewer</span>
+                            )}
+                          </>
                         )}
                       </>
                     )}

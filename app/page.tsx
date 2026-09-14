@@ -61,7 +61,7 @@ export default function Home() {
             CodeCollab
           </h1>
           <p className="text-gray-400 text-base">
-            Real-time collaborative coding — JavaScript & Java
+            Real-time collaborative coding — JavaScript, Java, Python & C++
           </p>
         </div>
 
@@ -133,7 +133,7 @@ export default function Home() {
 
         {/* Feature badges */}
         <div className="flex gap-3 flex-wrap justify-center">
-          {["⚡ Real-time sync", "☕ Java support", "▶ Run & execute", "🔗 Invite links"].map((f) => (
+          {["⚡ Real-time sync", "🌐 4 Languages (JS, Java, Py, C++)", "▶ Run & execute", "🔗 Instant invite links"].map((f) => (
             <span key={f} className="text-xs text-gray-600 bg-[#161b22] border border-[#30363d] px-3 py-1 rounded-full">
               {f}
             </span>
