@@ -6,6 +6,7 @@ import { io, Socket } from "socket.io-client";
 import EditorComponent from "@/components/EditorComponent";
 import InviteButton from "@/components/InviteButton";
 import ChallengesPanel from "@/components/ChallengesPanel";
+import ParticipantsPanel, { Participant } from "@/components/ParticipantsPanel";
 import { defaultTemplates } from "@/lib/challenges";
 import {
   Files,
@@ -18,9 +19,13 @@ import {
   Terminal,
   BookOpen,
   Code2,
+  Users,
+  Crown,
+  Lock,
+  UserCheck,
 } from "lucide-react";
 
-type SidebarTab = "explorer" | "challenges";
+type SidebarTab = "explorer" | "challenges" | "participants";
 
 const LANG_META: Record<string, { label: string; ext: string; badge: string; color: string }> = {
   javascript: { label: "JavaScript", ext: "js",   badge: "⚡ JS",   color: "text-yellow-300" },
@@ -41,16 +46,122 @@ export default function RoomPage() {
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("explorer");
   const [outputError, setOutputError] = useState(false);
 
+  // Participant and Permission states
+  const [socket, setSocket] = useState<Socket | null>(null);
+  const [isHost, setIsHost] = useState(false);
+  const [canEdit, setCanEdit] = useState(false);
+  const [roomMode, setRoomMode] = useState<"host-only" | "collaborative">("host-only");
+  const [participants, setParticipants] = useState<Participant[]>([]);
+  const [username, setUsername] = useState(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("codecollab_username");
+      if (stored) return stored;
+    }
+    return "Student";
+  });
+
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
+    // 1. Retrieve or generate username and host token from localStorage
+    const hostToken = typeof window !== "undefined" ? localStorage.getItem(`codecollab_host_${roomId}`) : null;
+    let storedName = typeof window !== "undefined" ? localStorage.getItem("codecollab_username") : null;
+    
+    if (!storedName) {
+      storedName = hostToken ? "Host" : `Student-${Math.floor(100 + Math.random() * 900)}`;
+      if (typeof window !== "undefined") {
+        localStorage.setItem("codecollab_username", storedName);
+      }
+    }
+
+    // 2. Connect single socket instance for the room
     const newSocket = io(
       process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:4000",
       { transports: ["websocket"] }
     );
     socketRef.current = newSocket;
-    newSocket.emit("join-room", roomId);
 
+    newSocket.on("connect", () => {
+      setSocket(newSocket);
+      if (storedName) {
+        setUsername(storedName);
+      }
+    });
+
+    newSocket.on("disconnect", () => {
+      setSocket(null);
+    });
+
+    newSocket.emit("join-room", {
+      roomId,
+      username: storedName,
+      hostToken: hostToken || undefined,
+    });
+
+    // 3. Room initialization & participant events
+    newSocket.on("room-init", (data: {
+      isHost: boolean;
+      hostToken?: string;
+      canEdit: boolean;
+      mode: "host-only" | "collaborative";
+      myParticipant: Participant;
+      participants: Participant[];
+    }) => {
+      setIsHost(data.isHost);
+      setCanEdit(data.canEdit);
+      setRoomMode(data.mode);
+      setParticipants(data.participants);
+
+      if (data.isHost && data.hostToken && typeof window !== "undefined") {
+        localStorage.setItem(`codecollab_host_${roomId}`, data.hostToken);
+      }
+
+      if (data.isHost) {
+        const currentName = typeof window !== "undefined" ? localStorage.getItem("codecollab_username") : null;
+        if (!currentName || currentName.startsWith("Student-")) {
+          setUsername("Host");
+          if (typeof window !== "undefined") {
+            localStorage.setItem("codecollab_username", "Host");
+          }
+          newSocket.emit("update-name", { roomId, username: "Host" });
+        }
+      }
+    });
+
+    newSocket.on("host-promoted", ({ hostToken }: { hostToken?: string }) => {
+      setIsHost(true);
+      setCanEdit(true);
+      if (hostToken && typeof window !== "undefined") {
+        localStorage.setItem(`codecollab_host_${roomId}`, hostToken);
+      }
+      const currentName = typeof window !== "undefined" ? localStorage.getItem("codecollab_username") : null;
+      if (!currentName || currentName.startsWith("Student-")) {
+        setUsername("Host");
+        if (typeof window !== "undefined") {
+          localStorage.setItem("codecollab_username", "Host");
+        }
+        newSocket.emit("update-name", { roomId, username: "Host" });
+      }
+    });
+
+    newSocket.on("participants-update", (updatedList: Participant[]) => {
+      setParticipants(updatedList);
+      const me = updatedList.find((p) => p.socketId === newSocket.id);
+      if (me) {
+        setCanEdit(me.canEdit);
+        setIsHost(me.isHost);
+      }
+    });
+
+    newSocket.on("permission-updated", ({ canEdit }: { canEdit: boolean }) => {
+      setCanEdit(canEdit);
+    });
+
+    newSocket.on("room-mode-updated", (mode: "host-only" | "collaborative") => {
+      setRoomMode(mode);
+    });
+
+    // Code and Language sync
     newSocket.on("language-update", (lang) => setLanguage(lang));
     newSocket.on("code-update", (code) => setCurrentCode(code));
 
@@ -60,7 +171,9 @@ export default function RoomPage() {
       setOutputError(result.toLowerCase().startsWith("error"));
     });
 
-    return () => { newSocket.disconnect(); };
+    return () => {
+      newSocket.disconnect();
+    };
   }, [roomId]);
 
   const runCode = () => {
@@ -71,9 +184,8 @@ export default function RoomPage() {
   };
 
   const handleLanguageChange = (newLang: string) => {
+    if (!canEdit) return;
     setLanguage(newLang);
-    // Load default template for the new language and sync currentCode immediately
-    // so that Run Code sends the correct code (not the stale previous-language code)
     const template = defaultTemplates[newLang] ?? defaultTemplates["javascript"];
     setChallengeCode(template);
     setCurrentCode(template);
@@ -82,12 +194,43 @@ export default function RoomPage() {
   };
 
   const handleChallengeSelect = (code: string) => {
+    if (!canEdit) return;
     setChallengeCode(code);
     setCurrentCode(code);
     socketRef.current?.emit("code-change", { roomId, code });
   };
 
+  const handleUpdateName = (newName: string) => {
+    setUsername(newName);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("codecollab_username", newName);
+    }
+    socketRef.current?.emit("update-name", { roomId, username: newName });
+  };
+
+  const handleRequestEditAccess = () => {
+    socketRef.current?.emit("request-edit-access", { roomId });
+  };
+
+  const handleSetEditPermission = (targetSocketId: string, targetCanEdit: boolean) => {
+    socketRef.current?.emit("set-edit-permission", {
+      roomId,
+      targetSocketId,
+      canEdit: targetCanEdit,
+    });
+  };
+
+  const handleSetRoomMode = (mode: "host-only" | "collaborative") => {
+    socketRef.current?.emit("set-room-mode", { roomId, mode });
+  };
+
+  const handleClaimHost = () => {
+    socketRef.current?.emit("claim-host", { roomId });
+  };
+
   const meta = LANG_META[language] ?? LANG_META["javascript"];
+  const pendingRequestsCount = participants.filter((p) => p.requestingEdit && !p.canEdit).length;
+  const currentParticipant = participants.find((p) => p.socketId === socket?.id);
 
   return (
     <div className="flex h-screen w-full bg-[#1e1e1e] text-[#cccccc] font-sans overflow-hidden">
@@ -105,6 +248,27 @@ export default function RoomPage() {
         >
           <Files className="w-5 h-5" />
         </button>
+
+        <button
+          title="Participants"
+          onClick={() => setSidebarTab("participants")}
+          className={`relative p-2 rounded transition-colors ${
+            sidebarTab === "participants"
+              ? "text-white bg-[#444]"
+              : "text-gray-500 hover:text-white"
+          }`}
+        >
+          <Users className="w-5 h-5" />
+          {/* Notification badge for host on pending requests */}
+          {isHost && pendingRequestsCount > 0 ? (
+            <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-yellow-400 rounded-full animate-ping" />
+          ) : participants.length > 0 ? (
+            <span className="absolute bottom-1 right-1 text-[9px] bg-blue-600 text-white rounded-full px-1 font-bold">
+              {participants.length}
+            </span>
+          ) : null}
+        </button>
+
         <button
           title="Challenges"
           onClick={() => setSidebarTab("challenges")}
@@ -116,6 +280,7 @@ export default function RoomPage() {
         >
           <BookOpen className="w-5 h-5" />
         </button>
+
         <button title="Search" className="p-2 text-gray-500 hover:text-white rounded transition-colors">
           <Search className="w-5 h-5" />
         </button>
@@ -153,6 +318,25 @@ export default function RoomPage() {
           </>
         )}
 
+        {/* Participants tab */}
+        {sidebarTab === "participants" && (
+          <div className="flex flex-col flex-1 min-h-0">
+            <ParticipantsPanel
+              participants={participants}
+              currentSocketId={socket?.id || null}
+              isHost={isHost}
+              roomMode={roomMode}
+              canEdit={canEdit}
+              username={username}
+              onUpdateName={handleUpdateName}
+              onRequestEditAccess={handleRequestEditAccess}
+              onSetEditPermission={handleSetEditPermission}
+              onSetRoomMode={handleSetRoomMode}
+              onClaimHost={handleClaimHost}
+            />
+          </div>
+        )}
+
         {/* Challenges tab */}
         {sidebarTab === "challenges" && (
           <div className="flex flex-col flex-1 min-h-0">
@@ -167,12 +351,43 @@ export default function RoomPage() {
       {/* ── MAIN AREA ── */}
       <main className="flex-1 flex flex-col min-w-0 bg-[#1e1e1e]">
 
-        {/* TAB BAR & RUN BUTTON */}
+        {/* TAB BAR & PERMISSIONS & RUN BUTTON */}
         <div className="flex h-9 bg-[#252526] items-center justify-between pr-2 flex-shrink-0">
-          <div className="flex items-center gap-2 px-3 h-full bg-[#1e1e1e] text-white border-t-2 border-blue-500 min-w-32">
-            <Code2 className="w-3 h-3 text-gray-500" />
-            <span className="text-sm font-mono">main.{meta.ext}</span>
-            <X className="w-3 h-3 hover:text-white ml-1 text-gray-600" />
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 px-3 h-9 bg-[#1e1e1e] text-white border-t-2 border-blue-500 min-w-32">
+              <Code2 className="w-3 h-3 text-gray-500" />
+              <span className="text-sm font-mono">main.{meta.ext}</span>
+              <X className="w-3 h-3 hover:text-white ml-1 text-gray-600" />
+            </div>
+
+            {/* Role / Permission Indicator Tag */}
+            {!participants.some((p) => p.isHost) ? (
+              <button
+                onClick={handleClaimHost}
+                title="Room has no active host. Click to claim Admin rights!"
+                className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-yellow-500 hover:bg-yellow-400 text-black shadow transition-colors animate-pulse"
+              >
+                <Crown className="w-3 h-3" />
+                <span>Claim Host / Admin</span>
+              </button>
+            ) : isHost ? (
+              <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-yellow-500/15 text-yellow-300 border border-yellow-500/30">
+                <Crown className="w-3 h-3" /> Host
+              </span>
+            ) : canEdit ? (
+              <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-green-500/15 text-green-300 border border-green-500/30">
+                <UserCheck className="w-3 h-3" /> Editor
+              </span>
+            ) : (
+              <button
+                onClick={handleRequestEditAccess}
+                title="Click to request edit permission from the host"
+                className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-[#333] hover:bg-[#444] text-yellow-300 border border-yellow-500/40 transition-colors"
+              >
+                <Lock className="w-3 h-3" />
+                <span>View Only {currentParticipant?.requestingEdit ? "(Requested ✋)" : "(Ask Edit ✋)"}</span>
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -182,12 +397,13 @@ export default function RoomPage() {
                 <button
                   key={lang}
                   onClick={() => handleLanguageChange(lang)}
-                  title={m.label}
+                  disabled={!canEdit}
+                  title={!canEdit ? "Editing locked by host" : m.label}
                   className={`text-[10px] px-2 py-0.5 rounded font-semibold transition-colors ${
                     language === lang
                       ? "bg-blue-600 text-white"
                       : "text-gray-500 hover:text-gray-300 hover:bg-[#3e3e42]"
-                  }`}
+                  } ${!canEdit ? "opacity-50 cursor-not-allowed" : ""}`}
                 >
                   {m.badge}
                 </button>
@@ -213,10 +429,14 @@ export default function RoomPage() {
         {/* EDITOR */}
         <div className="flex-1 relative min-h-0">
           <EditorComponent
+            socket={socket}
             roomId={roomId}
             language={language}
             initialCode={challengeCode}
             onCodeChange={setCurrentCode}
+            canEdit={canEdit}
+            onRequestEditAccess={handleRequestEditAccess}
+            isRequestingEdit={Boolean(currentParticipant?.requestingEdit)}
           />
         </div>
 
@@ -254,23 +474,29 @@ export default function RoomPage() {
               <GitGraph className="w-3 h-3" />
               main*
             </div>
+            <div className="flex items-center gap-1 text-[11px] text-blue-100">
+              <Users className="w-3 h-3" />
+              <span>{participants.length} online</span>
+            </div>
           </div>
           <div className="relative group">
             <div className={`font-semibold cursor-pointer hover:bg-blue-600 px-2 py-0.5 rounded transition-colors ${meta.color}`}>
               {meta.badge} {meta.label}
             </div>
-            <select
-              value={language}
-              onChange={(e) => handleLanguageChange(e.target.value)}
-              className="absolute bottom-7 right-0 w-36 bg-[#252526] border border-[#3e3e42] rounded shadow-2xl opacity-0 group-hover:opacity-100 transition-opacity text-gray-200 text-xs"
-              size={4}
-              aria-label="Select programming language"
-            >
-              <option value="javascript">⚡ JavaScript</option>
-              <option value="java">☕ Java</option>
-              <option value="python">🐍 Python</option>
-              <option value="cpp">⚙ C++</option>
-            </select>
+            {canEdit && (
+              <select
+                value={language}
+                onChange={(e) => handleLanguageChange(e.target.value)}
+                className="absolute bottom-7 right-0 w-36 bg-[#252526] border border-[#3e3e42] rounded shadow-2xl opacity-0 group-hover:opacity-100 transition-opacity text-gray-200 text-xs"
+                size={4}
+                aria-label="Select programming language"
+              >
+                <option value="javascript">⚡ JavaScript</option>
+                <option value="java">☕ Java</option>
+                <option value="python">🐍 Python</option>
+                <option value="cpp">⚙ C++</option>
+              </select>
+            )}
           </div>
         </footer>
       </main>

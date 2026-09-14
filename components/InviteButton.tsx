@@ -6,7 +6,7 @@ export default function InviteButton({ roomId }: { roomId: string }) {
 
   const copyLink = () => {
     // 1. Get the current full URL
-    const fullUrl = window.location.href;
+    const fullUrl = typeof window !== "undefined" && window.location.href ? window.location.href : `http://localhost:3000/room/${roomId}`;
     
     // 2. Copy to clipboard
     navigator.clipboard.writeText(fullUrl).then(() => {

@@ -16,12 +16,24 @@ export default function Home() {
 
   const createRoom = () => {
     const newRoomId = Math.random().toString(36).substring(2, 9);
+    const hostToken = Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+    if (typeof window !== "undefined") {
+      localStorage.setItem(`codecollab_host_${newRoomId}`, hostToken);
+    }
     router.push(`/room/${newRoomId}?lang=${selectedLang}`);
   };
 
   const joinRoom = () => {
     if (roomId.trim()) {
-      router.push(`/room/${roomId}`);
+      const id = roomId.trim();
+      if (typeof window !== "undefined") {
+        const existingToken = localStorage.getItem(`codecollab_host_${id}`);
+        if (!existingToken) {
+          const hostToken = Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+          localStorage.setItem(`codecollab_host_${id}`, hostToken);
+        }
+      }
+      router.push(`/room/${id}?lang=${selectedLang}`);
     }
   };
 

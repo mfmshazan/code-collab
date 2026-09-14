@@ -2,9 +2,10 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "module": "commonjs",
+    "moduleResolution": "node",
     "outDir": "dist",
     "noEmit": false,
-    "jsx": "react" 
+    "jsx": "react"
   },
-  "include": ["server.ts"]
+  "include": ["socket-server.ts"]
 }

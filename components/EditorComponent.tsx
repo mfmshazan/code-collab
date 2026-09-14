@@ -15,6 +15,10 @@ interface EditorProps {
   language?: string;
   initialCode?: string;
   onCodeChange?: (code: string) => void;
+  canEdit?: boolean;
+  socket?: Socket | null;
+  onRequestEditAccess?: () => void;
+  isRequestingEdit?: boolean;
 }
 
 // Store for other users' cursors (User ID -> Decoration ID)
@@ -25,47 +29,69 @@ export default function EditorComponent({
   language = "javascript",
   initialCode,
   onCodeChange,
+  canEdit = true,
+  socket: parentSocket,
+  onRequestEditAccess,
+  isRequestingEdit,
 }: EditorProps) {
   const [code, setCode] = useState<string>(
     initialCode ?? "// Loading..."
   );
-  const socketRef = useRef<Socket | null>(null);
+  const internalSocketRef = useRef<Socket | null>(null);
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const decorationsRef = useRef<CursorMap>({});
-  // Track whether we've received the first server snapshot
-  const hasReceivedSnapshot = useRef(false);
+  // Use parent socket if provided, else use internal socket
+  const activeSocket = parentSocket || internalSocketRef.current;
 
   // When initialCode prop changes (challenge or language template loaded),
-  // update editor display AND notify parent so currentCode stays in sync.
-  useEffect(() => {
-    if (initialCode !== undefined) {
-      setCode(initialCode);
-      onCodeChange?.(initialCode); // <-- keep parent currentCode in sync
-      hasReceivedSnapshot.current = false;
-    }
-  }, [initialCode]); // eslint-disable-line react-hooks/exhaustive-deps
+  // adjust state during render (React-recommended pattern instead of setState in effect)
+  const [prevInitialCode, setPrevInitialCode] = useState(initialCode);
+  if (initialCode !== undefined && initialCode !== prevInitialCode) {
+    setPrevInitialCode(initialCode);
+    setCode(initialCode);
+  }
 
   useEffect(() => {
-    const newSocket = io(
-      process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:4000",
-      { transports: ["websocket"] }
-    );
-    socketRef.current = newSocket;
+    // If parent provides socket, attach listeners to parent socket
+    let socketToUse: Socket;
+    let shouldDisconnect = false;
+
+    if (parentSocket) {
+      socketToUse = parentSocket;
+    } else {
+      const s = io(
+        process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:4000",
+        { transports: ["websocket"] }
+      );
+      internalSocketRef.current = s;
+      socketToUse = s;
+      shouldDisconnect = true;
+      s.emit("join-room", roomId);
+    }
 
     // 1. Listen for Code Updates from other users
-    newSocket.on("code-update", (incoming) => {
+    const handleCodeUpdate = (incoming: string | { code: string }) => {
       const newCode =
         typeof incoming === "string" ? incoming : incoming.code;
-      hasReceivedSnapshot.current = true;
       setCode(newCode);
       onCodeChange?.(newCode);
-    });
+    };
 
     // 2. Listen for Cursor Updates
-    newSocket.on("cursor-update", ({ userId, cursor }) => {
-      if (!editorRef.current) return;
+    const handleCursorUpdate = ({
+      userId,
+      username,
+      cursor,
+    }: {
+      userId: string;
+      username?: string;
+      color?: string;
+      cursor: { lineNumber: number; column: number };
+    }) => {
+      if (!editorRef.current || !window.monaco) return;
 
       const editor = editorRef.current;
+      const displayName = username || `User ${userId.substring(0, 4)}`;
 
       const newCursorDecoration = {
         range: new window.monaco.Range(
@@ -76,7 +102,7 @@ export default function EditorComponent({
         ),
         options: {
           className: "remote-cursor",
-          hoverMessage: { value: `User ${userId.substr(0, 4)}` },
+          hoverMessage: { value: `👤 ${displayName}` },
         },
       };
 
@@ -85,21 +111,27 @@ export default function EditorComponent({
         newCursorDecoration,
       ]);
       decorationsRef.current[userId] = newDecorationsIds;
-    });
+    };
 
-    newSocket.emit("join-room", roomId);
+    socketToUse.on("code-update", handleCodeUpdate);
+    socketToUse.on("cursor-update", handleCursorUpdate);
 
     return () => {
-      newSocket.disconnect();
+      socketToUse.off("code-update", handleCodeUpdate);
+      socketToUse.off("cursor-update", handleCursorUpdate);
+      if (shouldDisconnect) {
+        socketToUse.disconnect();
+      }
     };
-  }, [roomId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [roomId, parentSocket]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 3. Handle Local Typing
+  // 3. Handle Local Typing (blocked if !canEdit)
   function handleEditorChange(value: string | undefined) {
+    if (!canEdit) return;
     if (value !== undefined) {
       setCode(value);
       onCodeChange?.(value);
-      socketRef.current?.emit("code-change", { roomId, code: value });
+      activeSocket?.emit("code-change", { roomId, code: value });
     }
   }
 
@@ -109,7 +141,7 @@ export default function EditorComponent({
 
     editor.onDidChangeCursorPosition((e) => {
       const position = e.position;
-      socketRef.current?.emit("cursor-move", {
+      activeSocket?.emit("cursor-move", {
         roomId,
         cursor: { lineNumber: position.lineNumber, column: position.column },
       });
@@ -117,7 +149,7 @@ export default function EditorComponent({
   };
 
   return (
-    <div className="h-full w-full bg-[#1e1e1e]">
+    <div className="h-full w-full bg-[#1e1e1e] relative">
       <Editor
         height="100%"
         language={language}
@@ -126,6 +158,8 @@ export default function EditorComponent({
         onChange={handleEditorChange}
         onMount={handleEditorDidMount}
         options={{
+          readOnly: !canEdit,
+          domReadOnly: !canEdit,
           minimap: { enabled: true },
           fontSize: 14,
           wordWrap: "on",
@@ -136,6 +170,27 @@ export default function EditorComponent({
           renderLineHighlight: "gutter",
         }}
       />
+
+      {/* View-Only Overlay Badge when user cannot edit */}
+      {!canEdit && (
+        <div className="absolute bottom-4 right-6 bg-[#161b22]/95 border border-yellow-500/40 text-yellow-300 text-xs px-3 py-1.5 rounded-lg shadow-xl backdrop-blur-sm flex items-center gap-2 pointer-events-auto z-10 animate-fade-in">
+          <span>🔒 View-Only Mode</span>
+          {onRequestEditAccess && (
+            <button
+              onClick={onRequestEditAccess}
+              disabled={isRequestingEdit}
+              className={`px-2 py-0.5 rounded text-[11px] font-bold transition-colors ${
+                isRequestingEdit
+                  ? "bg-yellow-500/20 text-yellow-400 cursor-default"
+                  : "bg-blue-600 hover:bg-blue-500 text-white"
+              }`}
+            >
+              {isRequestingEdit ? "Requested ✋" : "Request Edit Access ✋"}
+            </button>
+          )}
+        </div>
+      )}
+
       {/* CSS for remote cursor line */}
       <style jsx global>{`
         .remote-cursor {
